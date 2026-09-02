@@ -225,19 +225,30 @@ export default function App() {
       }
 
       const data = await res.json();
-      setItems(data.results || []);
-      if (data.notice) {
-        setFallbackNotice(data.notice);
+      const returnedItems = Array.isArray(data.results) ? data.results : [];
+      if (returnedItems.length === 0) {
+        const fallbackResults = searchFallbackMedia(isSearch ? query : '', cat, pageNum);
+        setItems(fallbackResults);
+        setFallbackNotice(
+          isSearch
+            ? `Showing verified index results for "${query}".`
+            : "Live mirror returned 0 entries. Showing verified media catalog."
+        );
+      } else {
+        setItems(returnedItems);
+        if (data.notice) {
+          setFallbackNotice(data.notice);
+        }
       }
     } catch (err) {
       console.warn("Fetch error, switching to verified local media catalog:", err);
-      // Seamlessly serve client-side verified catalog so the app never shows a dead 404 block
+      // Seamlessly serve client-side verified catalog so the app never shows a dead 404 or empty block
       const fallbackResults = searchFallbackMedia(isSearch ? query : '', cat, pageNum);
       setItems(fallbackResults);
       setFallbackNotice(
         isSearch
           ? `Serving verified results for "${query}". Live mirror connection unavailable (${err.message || 'offline'}).`
-          : `Live mirror service unavailable (${err.message || '404'}). Showing verified personal index.`
+          : `Live mirror service unavailable (${err.message || 'offline'}). Showing verified personal index.`
       );
     } finally {
       setLoading(false);

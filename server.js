@@ -363,6 +363,17 @@ async function sourceBrowse(page = 1, category = "") {
     results.push(item);
   });
 
+  if (!results.length) {
+    $(".tgxtable tr, .table-striped tr").each((_, el) => {
+      const item = parseRow($(el), sourceUsed);
+      if (item && !results.some(x => x.url === item.url)) results.push(item);
+    });
+  }
+
+  if (!results.length) {
+    throw new Error("No torrent rows matched from mirror HTML response");
+  }
+
   return { source: sourceUsed, page: Number(page) || 1, category, results };
 }
 
@@ -397,6 +408,10 @@ async function sourceSearch(query, page = 1, category = "") {
       const item = parseRow($(el), sourceUsed);
       if (item && !results.some(x => x.url === item.url)) results.push(item);
     });
+  }
+
+  if (!results.length) {
+    throw new Error("No search results parsed from mirror HTML response");
   }
 
   return { source: sourceUsed, query, page: Number(page) || 1, category, results };

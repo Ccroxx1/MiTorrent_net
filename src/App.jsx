@@ -14,7 +14,7 @@ import StreamPreviewModal from './components/StreamPreviewModal';
 import SeriesTrackerModal from './components/SeriesTrackerModal';
 import Footer from './components/Footer';
 import { searchFallbackMedia, FALLBACK_MEDIA } from './data/fallbackMedia';
-import { Loader2, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, Sparkles, Film, Database, Sliders } from 'lucide-react';
+import { Loader2, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, Sparkles, Film, Database, Sliders, X } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('latest'); // 'latest', 'search', 'bookmarks'
@@ -27,6 +27,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [fallbackNotice, setFallbackNotice] = useState(null);
+  const [noticeDismissed, setNoticeDismissed] = useState(false);
   const [serverStatus, setServerStatus] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
 
@@ -443,18 +444,28 @@ export default function App() {
         )}
 
         {/* Fallback Notice Banner */}
-        {!selectedItem && fallbackNotice && (
-          <div className="p-3.5 rounded-2xl bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-800/60 text-xs text-cyan-900 dark:text-cyan-200 flex items-center justify-between gap-3 shadow-sm">
-            <div className="flex items-center gap-2">
-              <Database className="w-4 h-4 text-cyan-600 dark:text-cyan-400 shrink-0" />
-              <span>{fallbackNotice}</span>
+        {!selectedItem && fallbackNotice && !noticeDismissed && (
+          <div className="p-3 rounded-xl bg-cyan-500/10 dark:bg-cyan-950/30 border border-cyan-500/20 dark:border-cyan-800/40 text-xs text-cyan-900 dark:text-cyan-200 flex items-center justify-between gap-3 shadow-sm transition">
+            <div className="flex items-center gap-2 min-w-0">
+              <Database className="w-4 h-4 text-cyan-500 dark:text-cyan-400 shrink-0" />
+              <span className="truncate">{fallbackNotice}</span>
             </div>
-            <button
-              onClick={() => fetchData(activeTab === 'search', activeSearchTerm, selectedCategory, page)}
-              className="px-2.5 py-1 rounded-lg bg-cyan-100 dark:bg-cyan-900/60 hover:bg-cyan-200 dark:hover:bg-cyan-800 text-cyan-900 dark:text-cyan-200 text-[11px] font-medium transition shrink-0 flex items-center gap-1"
-            >
-              <RefreshCw className="w-3 h-3" /> Retry Live
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={() => fetchData(activeTab === 'search', activeSearchTerm, selectedCategory, page)}
+                className="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 dark:bg-cyan-900/50 dark:hover:bg-cyan-800/80 text-cyan-800 dark:text-cyan-200 text-[11px] font-medium transition flex items-center gap-1"
+                title="Retry connecting to live mirror"
+              >
+                <RefreshCw className="w-3 h-3" /> Retry Live
+              </button>
+              <button
+                onClick={() => setNoticeDismissed(true)}
+                className="p-1 rounded-lg hover:bg-cyan-500/20 dark:hover:bg-cyan-900/50 text-cyan-600 dark:text-cyan-400 hover:text-cyan-900 dark:hover:text-cyan-100 transition"
+                title="Dismiss notice"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         )}
 

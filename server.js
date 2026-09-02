@@ -11,6 +11,9 @@ const MIRRORS = [
   "https://tgx.rs",
   "https://torrentgalaxy.mx",
   "https://torrentgalaxy.one",
+  "https://tgx.sb",
+  "https://torrentgalaxy.buzz",
+  "https://tgx.mobi",
   "https://proxygalaxy.me"
 ];
 

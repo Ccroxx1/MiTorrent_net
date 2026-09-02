@@ -827,22 +827,30 @@ function generateSearchResults(query, category) {
   ];
 }
 
-async function startApp() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
+app.use(express.json());
 
-  app.use(express.json());
+// Enable CORS for API routes if requested from external origin
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
-  app.get("/api/health", (_, res) => {
-    res.json({
-      ok: true,
-      service: "Atlas Personal Media Index",
-      source: primarySource,
-      mirrors: MIRRORS
-    });
+app.get("/api/health", (_, res) => {
+  res.json({
+    ok: true,
+    service: "MiTorrents Personal Media Index",
+    source: primarySource,
+    mirrors: MIRRORS
   });
+});
 
-  app.get("/api/search", async (req, res) => {
+app.get("/api/search", async (req, res) => {
     const q = clean(req.query.q);
     const page = Number(req.query.page) || 1;
     const category = clean(req.query.category);
@@ -1344,30 +1352,39 @@ async function startApp() {
     });
   });
 
-  if (process.env.NODE_ENV !== "production") {
-    const { createServer } = await import("vite");
-    const vite = await createServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(__dirname, "dist");
-    app.use(express.static(distPath));
-    app.use((req, res, next) => {
-      if (req.method === "GET" && !req.path.startsWith("/api")) {
-        res.sendFile(path.join(distPath, "index.html"));
+  export default app;
+  export { app };
+
+  // Only start the standalone HTTP listener if run directly / in standard container (not in Vercel serverless)
+  if (!process.env.VERCEL) {
+    const PORT = process.env.PORT || 3000;
+    
+    async function startServer() {
+      if (process.env.NODE_ENV !== "production") {
+        const { createServer } = await import("vite");
+        const vite = await createServer({
+          server: { middlewareMode: true },
+          appType: "spa",
+        });
+        app.use(vite.middlewares);
       } else {
-        next();
+        const distPath = path.join(__dirname, "dist");
+        app.use(express.static(distPath));
+        app.use((req, res, next) => {
+          if (req.method === "GET" && !req.path.startsWith("/api")) {
+            res.sendFile(path.join(distPath, "index.html"));
+          } else {
+            next();
+          }
+        });
       }
+
+      app.listen(PORT, "0.0.0.0", () => {
+        console.log(`MiTorrents running at http://0.0.0.0:${PORT}`);
+      });
+    }
+
+    startServer().catch(err => {
+      console.error("Failed to start MiTorrents server:", err);
     });
   }
-
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Atlas running at http://0.0.0.0:${PORT}`);
-  });
-}
-
-startApp().catch(err => {
-  console.error("Failed to start Atlas server:", err);
-});

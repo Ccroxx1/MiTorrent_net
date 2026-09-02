@@ -13,6 +13,7 @@ import ClientDispatchModal from './components/ClientDispatchModal';
 import StreamPreviewModal from './components/StreamPreviewModal';
 import SeriesTrackerModal from './components/SeriesTrackerModal';
 import Footer from './components/Footer';
+import { searchFallbackMedia, FALLBACK_MEDIA } from './data/fallbackMedia';
 import { Loader2, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, Sparkles, Film, Database, Sliders } from 'lucide-react';
 
 export default function App() {
@@ -229,8 +230,15 @@ export default function App() {
         setFallbackNotice(data.notice);
       }
     } catch (err) {
-      console.warn("Fetch error:", err);
-      setError(err.message || 'Unable to retrieve media items.');
+      console.warn("Fetch error, switching to verified local media catalog:", err);
+      // Seamlessly serve client-side verified catalog so the app never shows a dead 404 block
+      const fallbackResults = searchFallbackMedia(isSearch ? query : '', cat, pageNum);
+      setItems(fallbackResults);
+      setFallbackNotice(
+        isSearch
+          ? `Serving verified results for "${query}". Live mirror connection unavailable (${err.message || 'offline'}).`
+          : `Live mirror service unavailable (${err.message || '404'}). Showing verified personal index.`
+      );
     } finally {
       setLoading(false);
     }

@@ -890,11 +890,10 @@ function generateSearchResults(query, category) {
   ];
 }
 
-async function startApp() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
+const PORT = 3000;
 
-  app.use(express.json());
+app.use(express.json());
 
   app.get("/api/health", (_, res) => {
     res.json({
@@ -1412,30 +1411,37 @@ async function startApp() {
     });
   });
 
-  if (process.env.NODE_ENV !== "production") {
-    const { createServer } = await import("vite");
-    const vite = await createServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(__dirname, "dist");
-    app.use(express.static(distPath));
-    app.use((req, res, next) => {
-      if (req.method === "GET" && !req.path.startsWith("/api")) {
-        res.sendFile(path.join(distPath, "index.html"));
-      } else {
-        next();
-      }
+  async function startApp() {
+    if (process.env.NODE_ENV !== "production") {
+      const { createServer } = await import("vite");
+      const vite = await createServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(__dirname, "dist");
+      app.use(express.static(distPath));
+      app.use((req, res, next) => {
+        if (req.method === "GET" && !req.path.startsWith("/api")) {
+          res.sendFile(path.join(distPath, "index.html"));
+        } else {
+          next();
+        }
+      });
+    }
+
+    if (!process.env.VERCEL) {
+      app.listen(PORT, "0.0.0.0", () => {
+        console.log(`Atlas running at http://0.0.0.0:${PORT}`);
+      });
+    }
+  }
+
+  if (!process.env.VERCEL) {
+    startApp().catch(err => {
+      console.error("Failed to start Atlas server:", err);
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Atlas running at http://0.0.0.0:${PORT}`);
-  });
-}
-
-startApp().catch(err => {
-  console.error("Failed to start Atlas server:", err);
-});
+  export default app;

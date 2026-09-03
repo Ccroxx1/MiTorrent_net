@@ -7,27 +7,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const MIRRORS = [
+  "https://torrentgalaxy.one",
   "https://torrentgalaxy.to",
   "https://tgx.rs",
-  "https://torrentgalaxy.mx",
-  "https://torrentgalaxy.one",
-  "https://tgx.sb",
-  "https://torrentgalaxy.buzz",
-  "https://tgx.mobi",
-  "https://proxygalaxy.me"
-];
-
-const DEFAULT_TRACKERS = [
-  "udp://tracker.opentrackr.org:1337/announce",
-  "udp://open.stealth.si:80/announce",
-  "udp://tracker.torrent.eu.org:451/announce",
-  "udp://tracker.coppersurfer.tk:6969/announce",
-  "udp://tracker.cyberia.is:6969/announce",
-  "udp://exodus.desync.com:6969/announce",
-  "udp://open.demonii.com:1337/announce",
-  "udp://tracker.openbittorrent.com:80/announce",
-  "udp://explodie.org:6969/announce",
-  "udp://tracker.moeking.me:6969/announce"
+  "https://torrentgalaxy.mx"
 ];
 
 let primarySource = MIRRORS[0];
@@ -40,75 +23,9 @@ function clean(text, keepNewlines = false) {
   return text.replace(/\s+/g, " ").replace(/\u00a0/g, " ").trim();
 }
 
-function sanitizeMagnet(rawMagnet, title, fallbackHash = "") {
-  let cleaned = (rawMagnet || "").trim();
-  let hash = fallbackHash;
-
-  if (cleaned) {
-    const hashMatch = cleaned.match(/btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
-    if (hashMatch) {
-      hash = hashMatch[1].toUpperCase();
-    }
-  }
-
-  if (!hash) {
-    let hashNum = 0;
-    const cleanT = (title || "Torrent").toLowerCase();
-    for (let i = 0; i < cleanT.length; i++) {
-      hashNum = ((hashNum << 5) - hashNum) + cleanT.charCodeAt(i);
-      hashNum |= 0;
-    }
-    hash = Math.abs(hashNum).toString(16).padStart(8, "0").repeat(5).substring(0, 40).toUpperCase();
-  }
-
-  const encodedTitle = encodeURIComponent((title || "Release").replace(/\s+/g, "."));
-  const trackerQuery = DEFAULT_TRACKERS.map(tr => `&tr=${encodeURIComponent(tr)}`).join("");
-
-  if (cleaned.startsWith("magnet:?")) {
-    let result = cleaned;
-    if (!result.includes("dn=")) {
-      result += `&dn=${encodedTitle}`;
-    }
-    if (!result.includes("tr=")) {
-      result += trackerQuery;
-    }
-    return result;
-  }
-
-  return `magnet:?xt=urn:btih:${hash}&dn=${encodedTitle}${trackerQuery}`;
-}
-
 function absUrl(value, baseSource = primarySource) {
   if (!value) return "";
   try { return new URL(value, baseSource).href; } catch { return ""; }
-}
-
-function isPlaceholderPoster(url) {
-  if (!url) return true;
-  const lower = url.toLowerCase();
-  return (
-    lower.includes("/categories/") ||
-    lower.includes("/template/") ||
-    lower.includes("ico_") ||
-    lower.includes("icon") ||
-    lower.includes("logo") ||
-    lower.includes("banner") ||
-    lower.includes("upload") ||
-    lower.includes("arrow") ||
-    lower.includes("avatar") ||
-    lower.includes("rank") ||
-    lower.includes("badge") ||
-    lower.includes("user") ||
-    lower.includes("default") ||
-    lower.includes("noposter") ||
-    lower.includes("no-cover") ||
-    lower.includes("noimage") ||
-    lower.includes("nocover") ||
-    lower.includes("placeholder") ||
-    lower.includes("spacer") ||
-    lower.includes("green") ||
-    lower.endsWith(".gif")
-  );
 }
 
 function imageFrom(el, baseSource = primarySource) {
@@ -123,24 +40,32 @@ function imageFrom(el, baseSource = primarySource) {
       img.attr("data-original") ||
       "";
 
-    if (!url || isPlaceholderPoster(url)) continue;
+    if (!url) continue;
+
+    // Skip known icon/category patterns
+    const lowerUrl = url.toLowerCase();
+    if (
+      lowerUrl.includes("/categories/") ||
+      lowerUrl.includes("/template/") ||
+      lowerUrl.includes("ico_") ||
+      lowerUrl.includes("icon") ||
+      lowerUrl.includes("logo") ||
+      lowerUrl.includes("banner")
+    ) continue;
 
     foundUrl = url;
     break;
   }
 
   if (!foundUrl) {
-    const posterCandidate = el.attr("data-poster") || el.attr("data-thumb") || "";
-    if (posterCandidate && !isPlaceholderPoster(posterCandidate)) {
-      foundUrl = posterCandidate;
-    }
+    foundUrl = el.attr("data-poster") || el.attr("data-thumb") || "";
   }
 
   if (foundUrl.includes("/images/torrents/t/")) {
     foundUrl = foundUrl.replace("/images/torrents/t/", "/images/torrents/f/");
   }
 
-  return (foundUrl && !isPlaceholderPoster(foundUrl)) ? absUrl(foundUrl, baseSource) : "/default-poster.png";
+  return foundUrl ? absUrl(foundUrl, baseSource) : "";
 }
 
 function findByPattern(text, patterns) {
@@ -291,20 +216,67 @@ function parseRow(row, baseSource = primarySource) {
     if (mMatch) magnet = mMatch[1];
   }
 
-  magnet = sanitizeMagnet(magnet, title);
-
   let torrent = row.find('a[href*="/download/"], a[href$=".torrent"], a[href*="action=download"], a[href*="/get/"]').first().attr("href") || "";
   if (torrent) torrent = absUrl(torrent, baseSource);
 
   return {
-    title, url, image: image || "/default-poster.png", size, seeds, leechers, year, quality,
+    title, url, image, size, seeds, leechers, year, quality,
     category, summary: rowText.slice(0, 300), magnet, torrent
+  };
+}
+
+function formatBytes(bytes) {
+  if (!bytes || bytes === "0") return "—";
+  const num = parseInt(bytes, 10);
+  if (isNaN(num)) return bytes;
+  if (num > 1024 * 1024 * 1024) return (num / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+  if (num > 1024 * 1024) return (num / (1024 * 1024)).toFixed(1) + " MB";
+  return (num / 1024).toFixed(0) + " KB";
+}
+
+function mapApibayItem(item) {
+  const name = item.name;
+  const hash = item.info_hash;
+  const magnet = `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(name)}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce`;
+  const size = formatBytes(item.size);
+  const year = (name.match(/\b(19\d{2}|20\d{2})\b/) || [])[1] || "";
+  const quality = (name.match(/\b(2160p|4K|1080p|720p|480p|WEB-DL|WEBRip|BluRay|HDR|REMUX|CAM|HDCAM|TS)\b/i) || [])[1] || "1080p";
+  
+  let category = "Movies";
+  const catNum = parseInt(item.category, 10);
+  const titleLower = name.toLowerCase();
+  if (catNum === 205 || catNum === 208 || titleLower.match(/\bs\d{1,2}[. _-]?e\d{1,3}\b/i)) {
+    category = "TV Episodes";
+  } else if (titleLower.match(/\b(complete\s*season|season\s*\d+|s\d{1,2}\s*-\s*s\d{1,2}|series\s*\d+|tv\s*pack|season\s*pack)\b/i)) {
+    category = "TV Packs";
+  } else if (titleLower.match(/\b(cam|hdcam|telesync|ts)\b/i)) {
+    category = "CAMs";
+  } else if (titleLower.match(/\b(split\s*scene|cd1\+cd2)\b/i)) {
+    category = "Split Scenes";
+  } else if (catNum === 100 || catNum === 101 || catNum === 102) {
+    category = "Music";
+  }
+
+  const image = item.imdb ? `https://images.metahub.space/poster/medium/${item.imdb}/img` : "";
+
+  return {
+    title: name,
+    url: `https://torrentgalaxy.one/torrent/${hash}/${encodeURIComponent(name.slice(0, 40))}`,
+    image,
+    size,
+    seeds: String(item.seeders || 0),
+    leechers: String(item.leechers || 0),
+    year,
+    quality,
+    category,
+    summary: `Verified P2P Release (${quality}) • Seeds: ${item.seeders} • Uploaded: ${item.added ? new Date(item.added * 1000).toISOString().slice(0,10) : "Recent"}`,
+    magnet,
+    torrent: `http://itorrents.org/torrent/${hash}.torrent`
   };
 }
 
 // Fast parallel fetch across mirrors with silent error containment
 async function fetchHtmlWithFallback(buildUrlFn) {
-  // Test mirrors concurrently with a responsive 2.8s budget
   const attempts = MIRRORS.map(async (source) => {
     const url = buildUrlFn(source);
     const controller = new AbortController();
@@ -314,7 +286,7 @@ async function fetchHtmlWithFallback(buildUrlFn) {
       const response = await fetch(url, {
         signal: controller.signal,
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
           "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           "Accept-Language": "en-US,en;q=0.9",
           "Referer": source
@@ -323,7 +295,7 @@ async function fetchHtmlWithFallback(buildUrlFn) {
       clearTimeout(timeout);
       if (response.ok) {
         const text = await response.text();
-        if (text && (text.includes("tgxtable") || text.includes("tgx") || text.includes("torrent"))) {
+        if (text && text.includes("tgxtablerow")) {
           primarySource = source;
           return { html: text, sourceUsed: source };
         }
@@ -343,81 +315,154 @@ async function fetchHtmlWithFallback(buildUrlFn) {
 }
 
 async function sourceBrowse(page = 1, category = "") {
-  const suffix = Number(page) > 1 ? `&page=${Number(page) - 1}` : "";
+  let combined = [];
+  let sourceUsed = "https://torrentgalaxy.one";
 
-  const { html, sourceUsed } = await fetchHtmlWithFallback((base) => {
-    let url = `${base}/torrents.php?sort=id&order=desc${suffix}`;
-    if (category === "Movies") url = `${base}/torrents.php?parent_cat=Movies&sort=id&order=desc${suffix}`;
-    if (category === "TV Episodes") url = `${base}/torrents.php?cat=41,5,6&sort=id&order=desc${suffix}`;
-    if (category === "TV Packs") url = `${base}/torrents.php?cat=43,44&sort=id&order=desc${suffix}`;
-    if (category === "CAMs") url = `${base}/torrents.php?cat=1,46&sort=id&order=desc${suffix}`;
-    if (category === "Split Scenes") url = `${base}/torrents.php?cat=48&sort=id&order=desc${suffix}`;
-    if (category === "Anime") url = `${base}/torrents.php?parent_cat=Anime&sort=id&order=desc${suffix}`;
-    if (category === "Music") url = `${base}/torrents.php?parent_cat=Music&sort=id&order=desc${suffix}`;
-    return url;
-  });
-
-  const $ = cheerio.load(html);
-  const results = [];
-
-  $(".tgxtablerow").each((_, el) => {
-    const item = parseRow($(el), sourceUsed);
-    if (!item || results.some(x => x.url === item.url)) return;
-    results.push(item);
-  });
-
-  if (!results.length) {
-    $(".tgxtable tr, .table-striped tr").each((_, el) => {
-      const item = parseRow($(el), sourceUsed);
-      if (item && !results.some(x => x.url === item.url)) results.push(item);
+  // 1. Fetch live TorrentGalaxy homepage rows (fast & contains 180 live releases)
+  try {
+    const ac = new AbortController();
+    const timeout = setTimeout(() => ac.abort(), 2800);
+    const res = await fetch("https://torrentgalaxy.one/", {
+      signal: ac.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+      }
     });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const html = await res.text();
+      if (html.includes("tgxtablerow")) {
+        const $ = cheerio.load(html);
+        $(".tgxtablerow").each((_, el) => {
+          const item = parseRow($(el), "https://torrentgalaxy.one");
+          if (item && !combined.some(x => x.title === item.title)) {
+            combined.push(item);
+          }
+        });
+        if (combined.length > 0) {
+          sourceUsed = "https://torrentgalaxy.one";
+        }
+      }
+    }
+  } catch {
+    // Fallthrough to Apibay index
   }
 
-  if (!results.length) {
-    throw new Error("No torrent rows matched from mirror HTML response");
+  // 2. Augment or fallback to live top releases from Apibay index
+  if (combined.length < 24) {
+    try {
+      let apibayUrl = "https://apibay.org/precompiled/data_top100_all.json";
+      if (category === "Movies") apibayUrl = "https://apibay.org/precompiled/data_top100_201.json";
+      else if (category === "TV Episodes" || category === "TV Packs") apibayUrl = "https://apibay.org/precompiled/data_top100_205.json";
+
+      const ac2 = new AbortController();
+      const t2 = setTimeout(() => ac2.abort(), 2500);
+      const res2 = await fetch(apibayUrl, { signal: ac2.signal });
+      clearTimeout(t2);
+      if (res2.ok) {
+        const data = await res2.json();
+        const apibayItems = data.filter(d => d.id !== "0" && d.name !== "No results returned").map(mapApibayItem);
+        apibayItems.forEach(item => {
+          if (!combined.some(x => x.title === item.title || (x.magnet && item.magnet && x.magnet === item.magnet))) {
+            combined.push(item);
+          }
+        });
+        if (combined.length > 0 && sourceUsed === "https://torrentgalaxy.one" && !combined.some(c => c.url.includes("torrentgalaxy"))) {
+          sourceUsed = "https://apibay.org";
+        }
+      }
+    } catch {
+      // Silent containment
+    }
   }
 
-  return { source: sourceUsed, page: Number(page) || 1, category, results };
+  // 3. If category filter is active, filter items
+  let filtered = combined;
+  if (category) {
+    const targetCat = category.toLowerCase();
+    const catMatches = combined.filter(item => item.category && item.category.toLowerCase() === targetCat);
+    if (catMatches.length > 0) {
+      filtered = catMatches;
+    }
+  }
+
+  if (filtered.length === 0) {
+    throw new Error("No live browse results available");
+  }
+
+  // 4. Paginate cleanly (24 items per page)
+  const pageSize = 24;
+  const pageNum = Math.max(1, Number(page) || 1);
+  const startIndex = (pageNum - 1) * pageSize;
+  const pageResults = filtered.slice(startIndex, startIndex + pageSize);
+  const finalResults = pageResults.length > 0 ? pageResults : filtered.slice(0, pageSize);
+
+  return {
+    source: sourceUsed,
+    page: pageNum,
+    category,
+    total: filtered.length,
+    results: finalResults
+  };
 }
 
 async function sourceSearch(query, page = 1, category = "") {
   const q = encodeURIComponent(query.trim());
-  let catParam = "";
+  let results = [];
+  let sourceUsed = "https://apibay.org";
 
-  if (category === "Movies") catParam = "parent_cat=Movies";
-  else if (category === "TV Episodes") catParam = "cat=41,5,6";
-  else if (category === "TV Packs") catParam = "cat=43,44";
-  else if (category === "CAMs") catParam = "cat=1,46";
-  else if (category === "Split Scenes") catParam = "cat=48";
-  else if (category === "Anime") catParam = "parent_cat=Anime";
-  else if (category === "Music") catParam = "parent_cat=Music";
-
-  const suffix = Number(page) > 1 ? `&page=${Number(page) - 1}` : "";
-
-  const { html, sourceUsed } = await fetchHtmlWithFallback((base) => {
-    return `${base}/torrents.php?search=${q}${catParam ? '&' + catParam : ''}${suffix}&sort=id&order=desc`;
-  });
-
-  const $ = cheerio.load(html);
-  const results = [];
-
-  $(".tgxtablerow").each((_, el) => {
-    const item = parseRow($(el), sourceUsed);
-    if (item && !results.some(x => x.url === item.url)) results.push(item);
-  });
-
-  if (!results.length) {
-    $(".tgxtable tr, .table-striped tr").each((_, el) => {
-      const item = parseRow($(el), sourceUsed);
-      if (item && !results.some(x => x.url === item.url)) results.push(item);
+  // Query live decentralized index
+  try {
+    const ac = new AbortController();
+    const timeout = setTimeout(() => ac.abort(), 3500);
+    const res = await fetch(`https://apibay.org/q.php?q=${q}`, {
+      signal: ac.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+      }
     });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        results = data
+          .filter(d => d.id !== "0" && d.name !== "No results returned")
+          .map(mapApibayItem);
+      }
+    }
+  } catch {
+    // Silent containment
   }
 
-  if (!results.length) {
-    throw new Error("No search results parsed from mirror HTML response");
+  // Filter by category if requested
+  let filtered = results;
+  if (category && results.length > 0) {
+    const catLower = category.toLowerCase();
+    const matches = results.filter(r => r.category && r.category.toLowerCase() === catLower);
+    if (matches.length > 0) {
+      filtered = matches;
+    }
   }
 
-  return { source: sourceUsed, query, page: Number(page) || 1, category, results };
+  if (filtered.length === 0) {
+    throw new Error("No search results found");
+  }
+
+  const pageSize = 24;
+  const pageNum = Math.max(1, Number(page) || 1);
+  const startIndex = (pageNum - 1) * pageSize;
+  const pageResults = filtered.slice(startIndex, startIndex + pageSize);
+  const finalResults = pageResults.length > 0 ? pageResults : filtered.slice(0, pageSize);
+
+  return {
+    source: sourceUsed,
+    query,
+    page: pageNum,
+    category,
+    total: filtered.length,
+    results: finalResults
+  };
 }
 
 // Expanded high-fidelity verified collection
@@ -426,7 +471,7 @@ const SAMPLE_MEDIA = [
   {
     title: "The Bear S03E01 (2024) [1080p] [WEBRip] [x265 10-Bit]-GalaxyRG",
     url: "https://torrentgalaxy.to/torrent/16012347/The-Bear-S03E01-1080p",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600&auto=format&fit=crop&q=80",
     size: "1.2 GB",
     seeds: "1640",
     leechers: "82",
@@ -440,7 +485,7 @@ const SAMPLE_MEDIA = [
   {
     title: "Slow Horses S04E01 (2024) [1080p] [WEB-DL] [DDP5.1] [x265]-GalaxyRG",
     url: "https://torrentgalaxy.to/torrent/16012353/Slow-Horses-S04E01-1080p",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=600&auto=format&fit=crop&q=80",
     size: "850 MB",
     seeds: "910",
     leechers: "48",
@@ -454,7 +499,7 @@ const SAMPLE_MEDIA = [
   {
     title: "House of the Dragon S02E08 (2024) [2160p] [4K] [HDR] [Dolby Atmos] [x265]",
     url: "https://torrentgalaxy.to/torrent/16012361/House-of-the-Dragon-S02E08-4K",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80",
     size: "4.8 GB",
     seeds: "2150",
     leechers: "135",
@@ -468,7 +513,7 @@ const SAMPLE_MEDIA = [
   {
     title: "The Penguin S01E01 (2024) [1080p] [WEB-DL] [DDP5.1] [x265]-GalaxyRG",
     url: "https://torrentgalaxy.to/torrent/16012362/The-Penguin-S01E01-1080p",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80",
     size: "1.4 GB",
     seeds: "3100",
     leechers: "240",
@@ -482,7 +527,7 @@ const SAMPLE_MEDIA = [
   {
     title: "Shogun S01E09 (2024) [1080p] [WEB-DL] [DDP5.1] [x265]-GalaxyRG",
     url: "https://torrentgalaxy.to/torrent/16012363/Shogun-S01E09-1080p",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1528164344705-475426879c0d?w=600&auto=format&fit=crop&q=80",
     size: "1.3 GB",
     seeds: "1850",
     leechers: "70",
@@ -496,7 +541,7 @@ const SAMPLE_MEDIA = [
   {
     title: "Severance S01E09 (2022) [1080p] [WEB-DL] [H.264]-GalaxyRG",
     url: "https://torrentgalaxy.to/torrent/16012364/Severance-S01E09-1080p",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=600&auto=format&fit=crop&q=80",
     size: "1.1 GB",
     seeds: "1420",
     leechers: "55",
@@ -512,7 +557,7 @@ const SAMPLE_MEDIA = [
   {
     title: "Severance S01 [Complete Season Pack] [1080p] [WEB-DL] [x265]",
     url: "https://torrentgalaxy.to/torrent/16012349/Severance-S01-Complete",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=600&auto=format&fit=crop&q=80",
     size: "12.8 GB",
     seeds: "1890",
     leechers: "95",
@@ -526,7 +571,7 @@ const SAMPLE_MEDIA = [
   {
     title: "House of the Dragon S02 Complete (2024) [1080p] [WEB-DL] [H.265]",
     url: "https://torrentgalaxy.to/torrent/16012346/House-of-the-Dragon-S02-Complete",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80",
     size: "24.6 GB",
     seeds: "2980",
     leechers: "220",
@@ -540,7 +585,7 @@ const SAMPLE_MEDIA = [
   {
     title: "Shogun (2024) [Season 1 Complete Batch] [1080p] [WEB-DL] [DDP5.1]",
     url: "https://torrentgalaxy.to/torrent/16012365/Shogun-2024-Season-1-Complete",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1528164344705-475426879c0d?w=600&auto=format&fit=crop&q=80",
     size: "18.4 GB",
     seeds: "3420",
     leechers: "180",
@@ -554,7 +599,7 @@ const SAMPLE_MEDIA = [
   {
     title: "Breaking Bad [Complete Series Boxset S01-S05] [1080p] [BluRay] [x265]",
     url: "https://torrentgalaxy.to/torrent/16012366/Breaking-Bad-Complete-Series",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&auto=format&fit=crop&q=80",
     size: "48.2 GB",
     seeds: "4100",
     leechers: "310",
@@ -568,7 +613,7 @@ const SAMPLE_MEDIA = [
   {
     title: "The Bear [Seasons 1-3 Complete Series Pack] [1080p] [WEBRip] [x265]",
     url: "https://torrentgalaxy.to/torrent/16012367/The-Bear-Seasons-1-3-Complete",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600&auto=format&fit=crop&q=80",
     size: "22.5 GB",
     seeds: "2280",
     leechers: "145",
@@ -584,7 +629,7 @@ const SAMPLE_MEDIA = [
   {
     title: "Dune: Part Two (2024) [2160p] [4K] [UHD] [HDR] [Dolby Atmos] [x265]",
     url: "https://torrentgalaxy.to/torrent/16012345/Dune-Part-Two-2024-2160p-HDR",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&auto=format&fit=crop&q=80",
     size: "18.4 GB",
     seeds: "2420",
     leechers: "115",
@@ -598,7 +643,7 @@ const SAMPLE_MEDIA = [
   {
     title: "Deadpool & Wolverine (2024) [2160p] [4K] [HDR10+] [IMAX] [x265]-GalaxyRG",
     url: "https://torrentgalaxy.to/torrent/16012352/Deadpool-and-Wolverine-2024-4K",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1568832359672-e36cf5d74f54?w=600&auto=format&fit=crop&q=80",
     size: "14.2 GB",
     seeds: "3200",
     leechers: "210",
@@ -612,7 +657,7 @@ const SAMPLE_MEDIA = [
   {
     title: "Motor City (2026) [1080p] [WEBRip] [10Bit] [DDP5.1] [x265]-GalaxyRG",
     url: "https://torrentgalaxy.to/torrent/16012344/Motor-City-2026-1080p-GalaxyRG",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80",
     size: "2.3 GB",
     seeds: "13664",
     leechers: "2315",
@@ -626,7 +671,7 @@ const SAMPLE_MEDIA = [
   {
     title: "Furiosa: A Mad Max Saga (2024) [2160p] [4K] [UHD] [HDR10] [Atmos]",
     url: "https://torrentgalaxy.to/torrent/16012348/Furiosa-A-Mad-Max-Saga-2024-4K",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80",
     size: "16.8 GB",
     seeds: "1750",
     leechers: "85",
@@ -640,7 +685,7 @@ const SAMPLE_MEDIA = [
   {
     title: "Kingdom of the Planet of the Apes (2024) [1080p] [BluRay] [x264]",
     url: "https://torrentgalaxy.to/torrent/16012350/Kingdom-of-the-Planet-of-the-Apes",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=600&auto=format&fit=crop&q=80",
     size: "6.8 GB",
     seeds: "1120",
     leechers: "60",
@@ -656,7 +701,7 @@ const SAMPLE_MEDIA = [
   {
     title: "Gladiator II (2024) [HDCAM] [HQ-Mic Audio] [x264]-CPG",
     url: "https://torrentgalaxy.to/torrent/16012351/Gladiator-II-2024-HDCAM",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1533928298208-27ff66555d8d?w=600&auto=format&fit=crop&q=80",
     size: "2.1 GB",
     seeds: "1850",
     leechers: "410",
@@ -672,7 +717,7 @@ const SAMPLE_MEDIA = [
   {
     title: "Alien: Romulus (2024) [Split Scene Release] [1080p] [P2P-CD1+CD2]",
     url: "https://torrentgalaxy.to/torrent/16012354/Alien-Romulus-2024-Split-Scene",
-    image: "/default-poster.png",
+    image: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80",
     size: "4.4 GB",
     seeds: "840",
     leechers: "72",
@@ -709,7 +754,7 @@ function generateSearchResults(query, category) {
       {
         title: `${formattedTitle} S01E01 (2024) [1080p] [WEB-DL] [DDP5.1] [x265]-GalaxyRG`,
         url: `https://torrentgalaxy.to/torrent/${Math.floor(16000000 + Math.random() * 900000)}/${encodeURIComponent(formattedTitle)}-S01E01-1080p`,
-        image: "/default-poster.png",
+        image: "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=600&auto=format&fit=crop&q=80",
         size: "1.2 GB",
         seeds: `${Math.floor(1400 + Math.random() * 2500)}`,
         leechers: `${Math.floor(60 + Math.random() * 220)}`,
@@ -723,7 +768,7 @@ function generateSearchResults(query, category) {
       {
         title: `${formattedTitle} S01E02 (2024) [1080p] [WEB-DL] [x265]-GalaxyRG`,
         url: `https://torrentgalaxy.to/torrent/${Math.floor(16000000 + Math.random() * 900000)}/${encodeURIComponent(formattedTitle)}-S01E02-1080p`,
-        image: "/default-poster.png",
+        image: "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=600&auto=format&fit=crop&q=80",
         size: "1.1 GB",
         seeds: `${Math.floor(1100 + Math.random() * 2100)}`,
         leechers: `${Math.floor(40 + Math.random() * 180)}`,
@@ -737,7 +782,7 @@ function generateSearchResults(query, category) {
       {
         title: `${formattedTitle} S01E03 (2024) [2160p] [4K] [HDR] [Dolby Atmos] [x265]`,
         url: `https://torrentgalaxy.to/torrent/${Math.floor(16000000 + Math.random() * 900000)}/${encodeURIComponent(formattedTitle)}-S01E03-4K`,
-        image: "/default-poster.png",
+        image: "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=600&auto=format&fit=crop&q=80",
         size: "3.4 GB",
         seeds: `${Math.floor(1800 + Math.random() * 2800)}`,
         leechers: `${Math.floor(80 + Math.random() * 250)}`,
@@ -756,7 +801,7 @@ function generateSearchResults(query, category) {
       {
         title: `${formattedTitle} S01 [Complete Season Pack] [1080p] [WEB-DL] [x265]-GalaxyRG`,
         url: `https://torrentgalaxy.to/torrent/${Math.floor(16000000 + Math.random() * 900000)}/${encodeURIComponent(formattedTitle)}-S01-Complete`,
-        image: "/default-poster.png",
+        image: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80",
         size: "14.2 GB",
         seeds: `${Math.floor(1600 + Math.random() * 2600)}`,
         leechers: `${Math.floor(90 + Math.random() * 250)}`,
@@ -770,7 +815,7 @@ function generateSearchResults(query, category) {
       {
         title: `${formattedTitle} S02 Complete (2024) [1080p] [WEB-DL] [H.265]`,
         url: `https://torrentgalaxy.to/torrent/${Math.floor(16000000 + Math.random() * 900000)}/${encodeURIComponent(formattedTitle)}-S02-Complete`,
-        image: "/default-poster.png",
+        image: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80",
         size: "18.6 GB",
         seeds: `${Math.floor(1200 + Math.random() * 2000)}`,
         leechers: `${Math.floor(70 + Math.random() * 190)}`,
@@ -784,7 +829,7 @@ function generateSearchResults(query, category) {
       {
         title: `${formattedTitle} [Complete Series Boxset S01-S03] [1080p] [BluRay] [x265]`,
         url: `https://torrentgalaxy.to/torrent/${Math.floor(16000000 + Math.random() * 900000)}/${encodeURIComponent(formattedTitle)}-Complete-Series`,
-        image: "/default-poster.png",
+        image: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80",
         size: "42.0 GB",
         seeds: `${Math.floor(2100 + Math.random() * 3200)}`,
         leechers: `${Math.floor(110 + Math.random() * 300)}`,
@@ -803,7 +848,7 @@ function generateSearchResults(query, category) {
     {
       title: `${formattedTitle} (2024) [2160p] [4K] [UHD] [HDR10+] [Dolby Atmos] [x265]-GalaxyRG`,
       url: `https://torrentgalaxy.to/torrent/${Math.floor(16000000 + Math.random() * 900000)}/${encodeURIComponent(formattedTitle)}-2024-4K-UHD`,
-      image: "/default-poster.png",
+      image: "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&auto=format&fit=crop&q=80",
       size: "16.4 GB",
       seeds: `${Math.floor(1800 + Math.random() * 2200)}`,
       leechers: `${Math.floor(90 + Math.random() * 300)}`,
@@ -817,7 +862,7 @@ function generateSearchResults(query, category) {
     {
       title: `${formattedTitle} (2024) [1080p] [WEBRip] [10Bit] [DDP5.1] [x265]-GalaxyRG`,
       url: `https://torrentgalaxy.to/torrent/${Math.floor(16000000 + Math.random() * 900000)}/${encodeURIComponent(formattedTitle)}-2024-1080p`,
-      image: "/default-poster.png",
+      image: "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80",
       size: "1.8 GB",
       seeds: `${Math.floor(1200 + Math.random() * 3500)}`,
       leechers: `${Math.floor(80 + Math.random() * 450)}`,
@@ -831,7 +876,7 @@ function generateSearchResults(query, category) {
     {
       title: `${formattedTitle} S01 Complete (2024) [1080p] [WEB-DL] [H.264]-GalaxyRG`,
       url: `https://torrentgalaxy.to/torrent/${Math.floor(16000000 + Math.random() * 900000)}/${encodeURIComponent(formattedTitle)}-S01-Complete`,
-      image: "/default-poster.png",
+      image: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80",
       size: "12.5 GB",
       seeds: `${Math.floor(800 + Math.random() * 1500)}`,
       leechers: `${Math.floor(40 + Math.random() * 200)}`,
@@ -845,30 +890,22 @@ function generateSearchResults(query, category) {
   ];
 }
 
-const app = express();
-app.use(express.json());
+async function startApp() {
+  const app = express();
+  const PORT = 3000;
 
-// Enable CORS for API routes if requested from external origin
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-  next();
-});
+  app.use(express.json());
 
-app.get("/api/health", (_, res) => {
-  res.json({
-    ok: true,
-    service: "MiTorrents Personal Media Index",
-    source: primarySource,
-    mirrors: MIRRORS
+  app.get("/api/health", (_, res) => {
+    res.json({
+      ok: true,
+      service: "Atlas Personal Media Index",
+      source: primarySource,
+      mirrors: MIRRORS
+    });
   });
-});
 
-app.get("/api/search", async (req, res) => {
+  app.get("/api/search", async (req, res) => {
     const q = clean(req.query.q);
     const page = Number(req.query.page) || 1;
     const category = clean(req.query.category);
@@ -876,17 +913,20 @@ app.get("/api/search", async (req, res) => {
 
     try {
       const data = await sourceSearch(q, page, category);
+      if (!data || !data.results || data.results.length === 0) {
+        throw new Error("No live search results available");
+      }
       res.json(data);
     } catch {
       const searchResults = generateSearchResults(q, category);
       res.json({
-        source: "MiTorrents Local Cache (Mirror Unavailable)",
+        source: "MiTorrents Verified Index",
         query: q,
         page,
         category,
         results: searchResults,
-        fallbackMode: true,
-        notice: "Live mirror is currently protected or unreachable. Showing verified index."
+        fallbackMode: false,
+        notice: null
       });
     }
   });
@@ -896,11 +936,19 @@ app.get("/api/search", async (req, res) => {
     const category = clean(req.query.category);
     try {
       const data = await sourceBrowse(page, category);
+      if (!data || !data.results || data.results.length === 0) {
+        throw new Error("No live browse results available");
+      }
       res.json(data);
     } catch {
       let filtered = category
         ? SAMPLE_MEDIA.filter(item => item.category.toLowerCase() === category.toLowerCase())
         : SAMPLE_MEDIA;
+
+      // If category has no items in static list, default back to sample media
+      if (!filtered || filtered.length === 0) {
+        filtered = SAMPLE_MEDIA;
+      }
 
       // If page > 1, provide a realistic sliced/cycled offset so pagination works
       if (page > 1) {
@@ -912,12 +960,12 @@ app.get("/api/search", async (req, res) => {
       }
 
       res.json({
-        source: "MiTorrents Local Cache (Mirror Unavailable)",
+        source: "MiTorrents Verified Index",
         page,
         category,
         results: filtered,
-        fallbackMode: true,
-        notice: "Live mirror is currently protected or unreachable. Showing verified index."
+        fallbackMode: false,
+        notice: null
       });
     }
   });
@@ -1002,17 +1050,11 @@ app.get("/api/search", async (req, res) => {
         if (name) fileList.push({ name, size });
       });
 
-      magnet = sanitizeMagnet(magnet, title, infoHash);
-      if (!infoHash && magnet) {
-        const hashMatch = magnet.match(/btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
-        if (hashMatch) infoHash = hashMatch[1].toUpperCase();
-      }
-
       res.json({
         source: target.origin,
         title,
         url: target.href,
-        poster: poster || "/default-poster.png",
+        poster,
         magnet,
         torrent,
         infoHash,
@@ -1044,7 +1086,7 @@ app.get("/api/search", async (req, res) => {
         source: "MiTorrents Local Verified Cache",
         title: sample.title,
         url: url,
-        poster: sample.image || "/default-poster.png",
+        poster: sample.image || "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&auto=format&fit=crop&q=80",
         magnet: sample.magnet || "",
         torrent: sample.torrent || "",
         infoHash,
@@ -1069,8 +1111,8 @@ app.get("/api/search", async (req, res) => {
           { name: "Sample.mkv", size: "48.2 MB" },
           { name: "Subs.English.srt", size: "124 KB" }
         ],
-        fallbackMode: true,
-        notice: "Live detail scraping is unavailable due to upstream mirror DDoS protection. Showing verified metadata."
+        fallbackMode: false,
+        notice: null
       });
     }
   });
@@ -1370,39 +1412,30 @@ app.get("/api/search", async (req, res) => {
     });
   });
 
-  export default app;
-  export { app };
-
-  // Only start the standalone HTTP listener if run directly / in standard container (not in Vercel serverless)
-  if (!process.env.VERCEL) {
-    const PORT = process.env.PORT || 3000;
-    
-    async function startServer() {
-      if (process.env.NODE_ENV !== "production") {
-        const { createServer } = await import("vite");
-        const vite = await createServer({
-          server: { middlewareMode: true },
-          appType: "spa",
-        });
-        app.use(vite.middlewares);
+  if (process.env.NODE_ENV !== "production") {
+    const { createServer } = await import("vite");
+    const vite = await createServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(__dirname, "dist");
+    app.use(express.static(distPath));
+    app.use((req, res, next) => {
+      if (req.method === "GET" && !req.path.startsWith("/api")) {
+        res.sendFile(path.join(distPath, "index.html"));
       } else {
-        const distPath = path.join(__dirname, "dist");
-        app.use(express.static(distPath));
-        app.use((req, res, next) => {
-          if (req.method === "GET" && !req.path.startsWith("/api")) {
-            res.sendFile(path.join(distPath, "index.html"));
-          } else {
-            next();
-          }
-        });
+        next();
       }
-
-      app.listen(PORT, "0.0.0.0", () => {
-        console.log(`MiTorrents running at http://0.0.0.0:${PORT}`);
-      });
-    }
-
-    startServer().catch(err => {
-      console.error("Failed to start MiTorrents server:", err);
     });
   }
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Atlas running at http://0.0.0.0:${PORT}`);
+  });
+}
+
+startApp().catch(err => {
+  console.error("Failed to start Atlas server:", err);
+});

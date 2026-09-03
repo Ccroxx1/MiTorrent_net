@@ -6,7 +6,7 @@
   "description": "Clean personal metadata and search interface for TorrentGalaxy-compatible public media pages.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "NODE_ENV=production node server.js",
     "dev": "node server.js",
     "build": "vite build",
     "lint": "vite build"
